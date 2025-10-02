@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 LANTern - Secure P2P LAN Chat Application
+Version: 1.2.0-beta Lumina
 """
 
 import tkinter as tk
@@ -17,6 +18,139 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import os
 import base64
 import uuid
+from pathlib import Path
+import platform
+import subprocess
+import re
+import webbrowser
+
+
+class MessageFormatter:
+    """Handle message formatting (markdown-style, URLs)"""
+
+    @staticmethod
+    def parse_message(text: str) -> list:
+        """Parse message into formatted segments
+        Returns: [(text, format_type), ...]
+        format_type: 'bold', 'italic', 'code', 'url', 'normal'
+        """
+        segments = []
+        pos = 0
+
+        # Combined regex for all formatting
+        pattern = r'(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|(https?://[^\s]+))'
+
+        for match in re.finditer(pattern, text):
+            # Add normal text before match
+            if match.start() > pos:
+                segments.append((text[pos:match.start()], 'normal'))
+
+            if match.group(2):  # **bold**
+                segments.append((match.group(2), 'bold'))
+            elif match.group(3):  # *italic*
+                segments.append((match.group(3), 'italic'))
+            elif match.group(4):  # `code`
+                segments.append((match.group(4), 'code'))
+            elif match.group(5):  # URL
+                segments.append((match.group(5), 'url'))
+
+            pos = match.end()
+
+        # Add remaining text
+        if pos < len(text):
+            segments.append((text[pos:], 'normal'))
+
+        return segments if segments else [(text, 'normal')]
+
+
+class Notifications:
+    """Handle desktop notifications cross-platform"""
+
+    @staticmethod
+    def show(title: str, message: str):
+        """Show desktop notification"""
+        try:
+            system = platform.system()
+            if system == "Windows":
+                # Windows 10/11 toast notification
+                from subprocess import run
+                run([
+                    "powershell", "-Command",
+                    f"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; "
+                    f"[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null; "
+                    f"$template = @'<toast><visual><binding template=\"ToastText02\"><text id=\"1\">{title}</text><text id=\"2\">{message}</text></binding></visual></toast>'@; "
+                    f"$xml = New-Object Windows.Data.Xml.Dom.XmlDocument; "
+                    f"$xml.LoadXml($template); "
+                    f"$toast = New-Object Windows.UI.Notifications.ToastNotification($xml); "
+                    f"[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('LANTern').Show($toast);"
+                ], shell=True, check=False)
+            elif system == "Darwin":  # macOS
+                subprocess.run([
+                    "osascript", "-e",
+                    f'display notification "{message}" with title "LANTern" subtitle "{title}"'
+                ], check=False)
+            elif system == "Linux":
+                # Try notify-send (most Linux distros)
+                subprocess.run([
+                    "notify-send", title, message, "-a", "LANTern"
+                ], check=False)
+        except Exception:
+            pass  # Silently fail if notifications aren't supported
+
+
+class Config:
+    """Handle configuration and persistent settings"""
+
+    def __init__(self):
+        self.config_dir = Path.home() / ".lantern"
+        self.config_file = self.config_dir / "config.json"
+        self.config_dir.mkdir(exist_ok=True)
+        self.settings = self.load_config()
+
+    def load_config(self) -> dict:
+        """Load config from file or create default"""
+        default_config = {
+            "last_nickname": "",
+            "last_color": "#1976D2",
+            "developer_mode_key": "",  # Set to secret key to enable dev mode
+            "notifications_enabled": True,
+            "sound_enabled": True,
+            "dark_mode": False
+        }
+
+        if self.config_file.exists():
+            try:
+                with open(self.config_file, 'r') as f:
+                    loaded = json.load(f)
+                    # Merge with defaults for backwards compatibility
+                    default_config.update(loaded)
+                    return default_config
+            except Exception:
+                return default_config
+        return default_config
+
+    def save_config(self):
+        """Save config to file"""
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(self.settings, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save config: {e}")
+
+    def get(self, key: str, default=None):
+        """Get config value"""
+        return self.settings.get(key, default)
+
+    def set(self, key: str, value):
+        """Set config value and save"""
+        self.settings[key] = value
+        self.save_config()
+
+    def is_developer_mode(self) -> bool:
+        """Check if developer mode is enabled"""
+        # Secret key must match to enable (contact developer for key)
+        SECRET_KEY = "lantern_dev_2025"  # Change this for production
+        return self.settings.get("developer_mode_key", "") == SECRET_KEY
 
 
 class Encryption:
@@ -33,6 +167,13 @@ class Encryption:
             backend=default_backend()
         )
         return kdf.derive(password.encode())
+
+    @staticmethod
+    def generate_key_hash(key: bytes) -> str:
+        """Generate a hash of the key for verification"""
+        digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
+        digest.update(key)
+        return base64.b64encode(digest.finalize()).decode()[:16]
 
     @staticmethod
     def encrypt(message: str, key: bytes) -> str:
@@ -67,7 +208,9 @@ class LANTernNode:
         self.peers = {}  # {address: nickname}
         self.peer_colors = {}  # {address: color}
         self.peer_last_seen = {}  # {address: timestamp}
+        self.peer_verified = {}  # {address: bool} - Track if handshake verified
         self.encryption_key = None
+        self.key_hash = None
         self.running = False
         self.server_socket = None
 
@@ -79,11 +222,13 @@ class LANTernNode:
         self.on_typing = None
         self.on_message_delivered = None
         self.on_peer_color_update = None
+        self.on_key_mismatch = None
 
     def set_encryption_key(self, password: str):
         """Set encryption key from password"""
         salt = b'lantern_salt_2025'
         self.encryption_key = Encryption.generate_key(password, salt)
+        self.key_hash = Encryption.generate_key_hash(self.encryption_key)
 
     def start(self):
         """Start the P2P node"""
@@ -173,16 +318,30 @@ class LANTernNode:
             if message['type'] == 'announce':
                 peer_nick = message['nickname']
                 peer_color = message.get('color', '#1976D2')
+                peer_key_hash = message.get('key_hash', '')
+
+                # Verify key hash matches
+                if peer_key_hash and peer_key_hash != self.key_hash:
+                    if self.on_key_mismatch:
+                        self.on_key_mismatch(peer_nick)
+                    return
+
                 is_new_peer = addr[0] not in self.peers
                 self.peers[addr[0]] = peer_nick
                 self.peer_colors[addr[0]] = peer_color
                 self.peer_last_seen[addr[0]] = time.time()
+                self.peer_verified[addr[0]] = True
+
                 if is_new_peer and self.on_peer_joined:
                     self.on_peer_joined(peer_nick)
                 if self.on_peer_color_update:
                     self.on_peer_color_update(peer_nick, peer_color)
 
             elif message['type'] == 'message':
+                # Only accept messages from verified peers
+                if addr[0] not in self.peer_verified or not self.peer_verified[addr[0]]:
+                    return
+
                 # Add peer if not already known
                 if addr[0] not in self.peers and 'from' in message:
                     self.peers[addr[0]] = message['from']
@@ -195,13 +354,17 @@ class LANTernNode:
                 encrypted_msg = message['data']
                 if self.encryption_key:
                     decrypted = Encryption.decrypt(encrypted_msg, self.encryption_key)
-                    if self.on_message:
+                    if decrypted != "[DECRYPTION FAILED]" and self.on_message:
                         self.on_message(message['from'], decrypted)
                     # Send delivery confirmation
                     if 'msg_id' in message:
                         self._send_delivery_confirmation(addr[0], message['msg_id'])
 
             elif message['type'] == 'private_message':
+                # Only accept messages from verified peers
+                if addr[0] not in self.peer_verified or not self.peer_verified[addr[0]]:
+                    return
+
                 # Add peer if not already known
                 if addr[0] not in self.peers and 'from' in message:
                     self.peers[addr[0]] = message['from']
@@ -214,7 +377,7 @@ class LANTernNode:
                 encrypted_msg = message['data']
                 if self.encryption_key:
                     decrypted = Encryption.decrypt(encrypted_msg, self.encryption_key)
-                    if self.on_private_message:
+                    if decrypted != "[DECRYPTION FAILED]" and self.on_private_message:
                         self.on_private_message(message['from'], decrypted)
                     # Send delivery confirmation
                     if 'msg_id' in message:
@@ -284,9 +447,19 @@ class LANTernNode:
                 if message['type'] == 'presence' and message['nickname'] != self.nickname and addr[0] not in self.peers:
                     peer_nick = message['nickname']
                     peer_color = message.get('color', '#1976D2')
+                    peer_key_hash = message.get('key_hash', '')
+
+                    # Verify key hash matches
+                    if peer_key_hash and peer_key_hash != self.key_hash:
+                        if self.on_key_mismatch:
+                            self.on_key_mismatch(peer_nick)
+                        continue
+
                     self.peers[addr[0]] = peer_nick
                     self.peer_colors[addr[0]] = peer_color
                     self.peer_last_seen[addr[0]] = time.time()
+                    self.peer_verified[addr[0]] = True
+
                     if self.on_peer_joined:
                         self.on_peer_joined(peer_nick)
                     if self.on_peer_color_update:
@@ -300,20 +473,31 @@ class LANTernNode:
                 print(f"Discovery error: {e}")
 
     def _broadcast_presence(self):
-        """Broadcast presence to LAN"""
+        """Broadcast presence to LAN with adaptive interval"""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
         message = json.dumps({
             'type': 'presence',
             'nickname': self.nickname,
-            'color': self.user_color
+            'color': self.user_color,
+            'key_hash': self.key_hash
         })
 
         while self.running:
             try:
                 sock.sendto(message.encode(), ('<broadcast>', 5001))
-                time.sleep(5)
+
+                # Adaptive interval: slower when more peers (reduce network load)
+                peer_count = len(self.peers)
+                if peer_count > 15:
+                    interval = 10  # 10 seconds with many peers
+                elif peer_count > 5:
+                    interval = 7   # 7 seconds with moderate peers
+                else:
+                    interval = 5   # 5 seconds with few peers
+
+                time.sleep(interval)
             except Exception as e:
                 print(f"Broadcast error: {e}")
 
@@ -327,12 +511,26 @@ class LANTernNode:
             announce = json.dumps({
                 'type': 'announce',
                 'nickname': self.nickname,
-                'color': self.user_color
+                'color': self.user_color,
+                'key_hash': self.key_hash
             })
             sock.send(announce.encode())
             sock.close()
         except Exception as e:
             print(f"Error announcing to {peer_ip}: {e}")
+
+    def connect_to_peer_manually(self, peer_ip: str) -> bool:
+        """Manually connect to a peer by IP address"""
+        try:
+            # Validate IP format
+            socket.inet_aton(peer_ip)
+
+            # Announce to peer
+            self._announce_to_peer(peer_ip)
+            return True
+        except Exception as e:
+            print(f"Failed to connect to {peer_ip}: {e}")
+            return False
 
     def send_message(self, message: str) -> str:
         """Send encrypted message to all peers. Returns message ID."""
@@ -478,13 +676,14 @@ class DMWindow:
         if self.typing_timer:
             self.window.after_cancel(self.typing_timer)
 
-        # Send typing indicator
+        # Send typing indicator asynchronously to avoid blocking UI
         if self.message_entry.get():
-            self.parent_gui.node.send_typing_indicator(True)
+            threading.Thread(target=self.parent_gui.node.send_typing_indicator, args=(True,), daemon=True).start()
             # Stop typing after 2 seconds of no typing
-            self.typing_timer = self.window.after(2000, lambda: self.parent_gui.node.send_typing_indicator(False))
+            self.typing_timer = self.window.after(2000, lambda: threading.Thread(
+                target=self.parent_gui.node.send_typing_indicator, args=(False,), daemon=True).start())
         else:
-            self.parent_gui.node.send_typing_indicator(False)
+            threading.Thread(target=self.parent_gui.node.send_typing_indicator, args=(False,), daemon=True).start()
 
     def add_system_message(self, message: str):
         """Add system message to DM chat"""
@@ -498,7 +697,7 @@ class DMWindow:
         self.chat_display.config(state=tk.DISABLED)
 
     def display_message(self, sender: str, message: str, msg_id: str = None):
-        """Display message in DM window"""
+        """Display message in DM window with formatting"""
         self.chat_display.config(state=tk.NORMAL)
         timestamp = datetime.now().strftime("%H:%M:%S")
 
@@ -516,8 +715,26 @@ class DMWindow:
         self.chat_display.insert(tk.END, f"{display_name}: ", f"sender_{sender}")
         self.chat_display.tag_config(f"sender_{sender}", foreground=color, font=("Arial", 10, "bold"))
 
-        self.chat_display.insert(tk.END, f"{message}", "message")
-        self.chat_display.tag_config("message", foreground="black")
+        # Parse and format message
+        segments = MessageFormatter.parse_message(message)
+        for text, fmt in segments:
+            tag_name = f"dm_msg_{fmt}_{id(text)}"
+            self.chat_display.insert(tk.END, text, tag_name)
+
+            # Apply formatting
+            if fmt == 'bold':
+                self.chat_display.tag_config(tag_name, font=("Arial", 10, "bold"), foreground="black")
+            elif fmt == 'italic':
+                self.chat_display.tag_config(tag_name, font=("Arial", 10, "italic"), foreground="black")
+            elif fmt == 'code':
+                self.chat_display.tag_config(tag_name, font=("Courier", 9), background="#f0f0f0", foreground="#c7254e")
+            elif fmt == 'url':
+                self.chat_display.tag_config(tag_name, foreground="#0066cc", underline=True, font=("Arial", 10))
+                self.chat_display.tag_bind(tag_name, "<Button-1>", lambda e, url=text: webbrowser.open(url))
+                self.chat_display.tag_bind(tag_name, "<Enter>", lambda e, t=tag_name: self.chat_display.config(cursor="hand2"))
+                self.chat_display.tag_bind(tag_name, "<Leave>", lambda e: self.chat_display.config(cursor=""))
+            else:
+                self.chat_display.tag_config(tag_name, foreground="black")
 
         # Add delivery status if this is our message
         if msg_id and msg_id in self.pending_messages:
@@ -580,7 +797,8 @@ class LANTernGUI:
         self.root.geometry("700x500")
 
         self.node = None
-        self.dark_mode = False
+        self.config = Config()
+        self.dark_mode = self.config.get("dark_mode", False)
         self.typing_timer = None
         self.pending_messages = {}  # {msg_id: timestamp}
         self.user_colors = {}  # {nickname: color}
@@ -620,6 +838,10 @@ class LANTernGUI:
         tk.Label(left_frame, text="Nickname:", font=("Arial", 11)).pack(anchor=tk.W, pady=(10, 5))
         self.nickname_entry = tk.Entry(left_frame, font=("Arial", 11), width=28)
         self.nickname_entry.pack(anchor=tk.W, pady=(0, 15))
+        # Pre-fill last nickname
+        last_nick = self.config.get("last_nickname", "")
+        if last_nick:
+            self.nickname_entry.insert(0, last_nick)
 
         tk.Label(left_frame, text="Room Password:", font=("Arial", 11)).pack(anchor=tk.W, pady=(0, 5))
         self.password_entry = tk.Entry(left_frame, font=("Arial", 11), width=28, show="*")
@@ -638,7 +860,9 @@ class LANTernGUI:
 
         tk.Label(right_frame, text="Choose Your Color", font=("Arial", 14, "bold")).pack(pady=(10, 15))
 
-        self.selected_color = tk.StringVar(value="#1976D2")
+        # Pre-select last color
+        last_color = self.config.get("last_color", "#1976D2")
+        self.selected_color = tk.StringVar(value=last_color)
 
         # Expanded color options with names
         self.color_options = [
@@ -734,6 +958,10 @@ class LANTernGUI:
         # Get selected color
         user_color = self.selected_color.get()
 
+        # Save to config
+        self.config.set("last_nickname", nickname)
+        self.config.set("last_color", user_color)
+
         # Clear login screen
         for widget in self.root.winfo_children():
             widget.destroy()
@@ -771,6 +999,10 @@ class LANTernGUI:
                                     command=self.change_status)
         status_menu.config(bg="#2196F3", fg="white", font=("Arial", 9), highlightthickness=0)
         status_menu.pack(side=tk.RIGHT, padx=5)
+
+        # Search button
+        tk.Button(self.top_frame, text="🔍 Search", font=("Arial", 9),
+                 command=self.open_search).pack(side=tk.RIGHT, padx=5)
 
         # Export button
         tk.Button(self.top_frame, text="💾 Export", font=("Arial", 9),
@@ -837,6 +1069,10 @@ class LANTernGUI:
         self.users_list.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.users_list.bind("<Double-Button-1>", self.on_user_double_click)
 
+        # Manual connect button
+        tk.Button(self.users_frame, text="➕ Connect IP", font=("Arial", 8),
+                 bg="#f0f0f0", command=self.connect_manual_ip).pack(pady=5, padx=5, fill=tk.X)
+
         # Initialize node
         self.node = LANTernNode(nickname, user_color=user_color)
         self.node.set_encryption_key(password)
@@ -847,22 +1083,120 @@ class LANTernGUI:
         self.node.on_typing = self.on_peer_typing
         self.node.on_message_delivered = self.on_message_delivered
         self.node.on_peer_color_update = self.on_peer_color_update
+        self.node.on_key_mismatch = self.on_key_mismatch
         self.node.start()
 
         # Add self to users
         self.users_list.insert(tk.END, f"{nickname} (You)")
 
+        # Setup keyboard shortcuts
+        self.setup_keyboard_shortcuts()
+
+        # Apply saved dark mode setting
+        if self.config.get("dark_mode", False):
+            self.toggle_dark_mode()
+
         room_msg = "public room" if is_public else "private room"
         self.add_system_message(f"Connected to LANTern network ({room_msg})")
         self.add_system_message("All messages are end-to-end encrypted 🔒")
         self.add_system_message("Double-click a user to open private chat window")
+        self.add_system_message("📋 Shortcuts: Ctrl+F=Search, Ctrl+E=Export, Ctrl+D=DM, Ctrl+B=Bottom")
+        self.add_system_message("✨ Formatting: **bold** *italic* `code` URLs auto-link")
+
+        # Developer mode indicator
+        if self.config.is_developer_mode():
+            self.add_system_message("🔧 Developer Mode: ENABLED")
+            self.add_system_message(f"🔧 Debug: Port {self.node.port}, Key hash: {self.node.key_hash}")
 
         # Check max users
         self.check_max_users()
 
+    def setup_keyboard_shortcuts(self):
+        """Setup global keyboard shortcuts"""
+        # Export chat
+        self.root.bind("<Control-e>", lambda e: self.export_chat())
+        self.root.bind("<Control-E>", lambda e: self.export_chat())
+
+        # Open DM with selected user
+        self.root.bind("<Control-d>", lambda e: self.open_dm_from_selection())
+        self.root.bind("<Control-D>", lambda e: self.open_dm_from_selection())
+
+        # Jump to bottom
+        self.root.bind("<Control-b>", lambda e: self.scroll_to_bottom())
+        self.root.bind("<Control-B>", lambda e: self.scroll_to_bottom())
+
+        # Toggle dark mode
+        self.root.bind("<Control-t>", lambda e: self.toggle_dark_mode())
+        self.root.bind("<Control-T>", lambda e: self.toggle_dark_mode())
+
+        # Search in chat
+        self.root.bind("<Control-f>", lambda e: self.open_search())
+        self.root.bind("<Control-F>", lambda e: self.open_search())
+
+    def open_search(self):
+        """Open search dialog"""
+        search_term = simpledialog.askstring("Search Chat", "Enter search term:")
+        if search_term:
+            self.search_in_chat(search_term)
+
+    def search_in_chat(self, term: str):
+        """Search for text in chat and highlight results"""
+        # Remove previous search tags
+        self.chat_display.tag_remove("search", "1.0", tk.END)
+
+        if not term:
+            return
+
+        # Search for all occurrences
+        start_pos = "1.0"
+        match_count = 0
+
+        while True:
+            start_pos = self.chat_display.search(term, start_pos, tk.END, nocase=True)
+            if not start_pos:
+                break
+
+            end_pos = f"{start_pos}+{len(term)}c"
+            self.chat_display.tag_add("search", start_pos, end_pos)
+            match_count += 1
+            start_pos = end_pos
+
+        # Configure search highlight
+        self.chat_display.tag_config("search", background="yellow", foreground="black")
+
+        # Scroll to first match
+        if match_count > 0:
+            self.chat_display.see(self.chat_display.tag_ranges("search")[0])
+            self.add_system_message(f"🔍 Found {match_count} match{'es' if match_count != 1 else ''} for '{term}'")
+        else:
+            messagebox.showinfo("Search", f"No matches found for '{term}'")
+
+    def open_dm_from_selection(self):
+        """Open DM window for selected user"""
+        selection = self.users_list.curselection()
+        if selection:
+            self.on_user_double_click(None)
+
+    def connect_manual_ip(self):
+        """Manually connect to a peer by IP"""
+        ip_address = simpledialog.askstring(
+            "Connect to Peer",
+            "Enter peer IP address:\n(e.g., 192.168.1.100)",
+            parent=self.root
+        )
+
+        if ip_address:
+            ip_address = ip_address.strip()
+            success = self.node.connect_to_peer_manually(ip_address)
+            if success:
+                self.add_system_message(f"🔗 Attempting connection to {ip_address}...")
+            else:
+                messagebox.showerror("Connection Error", f"Invalid IP address: {ip_address}")
+
     def toggle_dark_mode(self):
         """Toggle between light and dark mode"""
         self.dark_mode = not self.dark_mode
+        self.config.set("dark_mode", self.dark_mode)
 
         if self.dark_mode:
             # Dark mode colors
@@ -951,6 +1285,8 @@ class LANTernGUI:
 
         if user_count >= 20:
             self.add_system_message("⚠️ Warning: 20+ users detected. Performance may degrade in P2P mode.")
+        elif user_count >= 10:
+            self.add_system_message(f"ℹ️ {user_count} users connected. P2P works best with <20 users.")
 
     def change_status(self, status: str):
         """Change user status"""
@@ -986,13 +1322,14 @@ class LANTernGUI:
         if self.typing_timer:
             self.root.after_cancel(self.typing_timer)
 
-        # Send typing indicator
+        # Send typing indicator asynchronously to avoid blocking UI
         if self.message_entry.get():
-            self.node.send_typing_indicator(True)
+            threading.Thread(target=self.node.send_typing_indicator, args=(True,), daemon=True).start()
             # Stop typing after 2 seconds of no typing
-            self.typing_timer = self.root.after(2000, lambda: self.node.send_typing_indicator(False))
+            self.typing_timer = self.root.after(2000, lambda: threading.Thread(
+                target=self.node.send_typing_indicator, args=(False,), daemon=True).start())
         else:
-            self.node.send_typing_indicator(False)
+            threading.Thread(target=self.node.send_typing_indicator, args=(False,), daemon=True).start()
 
     def on_peer_typing(self, nickname: str, is_typing: bool):
         """Handle peer typing notification"""
@@ -1042,6 +1379,15 @@ class LANTernGUI:
         """Callback for received messages"""
         self.root.after(0, lambda: self._display_message(sender, message))
 
+        # Show notification if enabled and window not focused
+        if self.config.get("notifications_enabled", True):
+            if not self.root.focus_get():
+                threading.Thread(
+                    target=Notifications.show,
+                    args=(f"Message from {sender}", message[:100]),
+                    daemon=True
+                ).start()
+
     def on_private_message_received(self, sender: str, message: str):
         """Callback for received private messages"""
         # Check if DM window exists for this sender
@@ -1051,6 +1397,14 @@ class LANTernGUI:
         else:
             # Create new DM window and display message
             self.root.after(0, lambda: self._handle_new_dm(sender, message))
+
+        # Show notification for DMs (higher priority)
+        if self.config.get("notifications_enabled", True):
+            threading.Thread(
+                target=Notifications.show,
+                args=(f"🔒 DM from {sender}", message[:100]),
+                daemon=True
+            ).start()
 
     def _handle_new_dm(self, sender: str, message: str):
         """Handle incoming DM from new sender"""
@@ -1063,7 +1417,7 @@ class LANTernGUI:
         self.add_system_message(f"💬 New DM from {sender} - Window opened")
 
     def _display_message(self, sender: str, message: str, msg_id: str = None):
-        """Display message in chat"""
+        """Display message in chat with formatting"""
         # Track if not at bottom for unread counter
         was_at_bottom = self.is_at_bottom
 
@@ -1077,15 +1431,33 @@ class LANTernGUI:
         self.chat_display.insert(tk.END, f"{sender}: ", f"sender_{sender}")
         self.chat_display.tag_config(f"sender_{sender}", foreground=user_color, font=("Arial", 10, "bold"))
 
-        self.chat_display.insert(tk.END, f"{message}", "message")
+        # Parse and format message
+        segments = MessageFormatter.parse_message(message)
+        for text, fmt in segments:
+            tag_name = f"msg_{fmt}_{id(text)}"
+            self.chat_display.insert(tk.END, text, tag_name)
+
+            # Apply formatting
+            base_color = "black" if not self.dark_mode else "#e0e0e0"
+            if fmt == 'bold':
+                self.chat_display.tag_config(tag_name, font=("Arial", 10, "bold"), foreground=base_color)
+            elif fmt == 'italic':
+                self.chat_display.tag_config(tag_name, font=("Arial", 10, "italic"), foreground=base_color)
+            elif fmt == 'code':
+                self.chat_display.tag_config(tag_name, font=("Courier", 9), background="#f0f0f0" if not self.dark_mode else "#3a3a3a", foreground="#c7254e" if not self.dark_mode else "#e83e8c")
+            elif fmt == 'url':
+                self.chat_display.tag_config(tag_name, foreground="#0066cc", underline=True, font=("Arial", 10))
+                self.chat_display.tag_bind(tag_name, "<Button-1>", lambda e, url=text: webbrowser.open(url))
+                self.chat_display.tag_bind(tag_name, "<Enter>", lambda e, t=tag_name: self.chat_display.config(cursor="hand2"))
+                self.chat_display.tag_bind(tag_name, "<Leave>", lambda e: self.chat_display.config(cursor=""))
+            else:
+                self.chat_display.tag_config(tag_name, foreground=base_color)
 
         # Add delivery status if this is our message
         if msg_id and msg_id in self.pending_messages:
             self.chat_display.insert(tk.END, " ⏳", f"status_{msg_id}")
 
         self.chat_display.insert(tk.END, "\n")
-
-        self.chat_display.tag_config("message", foreground="black" if not self.dark_mode else "#e0e0e0")
 
         # Only auto-scroll if was at bottom
         if was_at_bottom:
@@ -1161,6 +1533,14 @@ class LANTernGUI:
         """Add peer to users list"""
         self.users_list.insert(tk.END, nickname)
         self.add_system_message(f"✅ {nickname} joined the chat")
+
+        # Developer mode: show peer IP
+        if self.config.is_developer_mode():
+            for ip, nick in self.node.peers.items():
+                if nick == nickname:
+                    self.add_system_message(f"🔧 Debug: {nickname} @ {ip}")
+                    break
+
         self.check_max_users()
 
     def _remove_peer(self, nickname: str):
@@ -1172,6 +1552,11 @@ class LANTernGUI:
                 break
         self.add_system_message(f"❌ {nickname} left the chat")
         self.check_max_users()
+
+    def on_key_mismatch(self, nickname: str):
+        """Callback when a peer has a different encryption key"""
+        self.root.after(0, lambda: self.add_system_message(
+            f"⚠️ {nickname} tried to join with wrong password - access denied"))
 
     def send_message(self):
         """Send message"""

@@ -2,7 +2,7 @@
 
 **LANTern** is a lightweight, open-source peer-to-peer chat application designed for secure local network communication without requiring internet connectivity.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.0--beta%20Lumina-blue)
 ![Python](https://img.shields.io/badge/python-3.8+-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 
@@ -20,14 +20,21 @@
 
 ### User Interface
 - **🎨 Custom Colors** - Choose your own username color (20+ options)
-- **🌙 Dark Mode** - Easy on the eyes
+- **🌙 Dark Mode** - Easy on the eyes with persistent setting
 - **👥 User List** - See who's online with real-time status
-- **⌨️ Typing Indicators** - See when others are typing
+- **⌨️ Typing Indicators** - See when others are typing (no lag!)
 - **📜 Scroll Features** - Auto-scroll with unread message counter
 - **💾 Chat Export** - Save conversations to text files
+- **🔍 Search** - Find messages with Ctrl+F highlighting
+- **⌨️ Keyboard Shortcuts** - Quick actions (Ctrl+F/E/D/B/T)
+- **✨ Rich Formatting** - **bold**, *italic*, `code`, auto-linked URLs
+- **🔔 Notifications** - Desktop notifications for new messages & DMs
+- **💾 Remember Settings** - Auto-fill last nickname & color
 
 ### Privacy & Security
 - **🔑 Room Passwords** - Only users with the correct password can join
+- **🤝 Handshake Verification** - Automatic key verification prevents decryption errors
+- **⚠️ Password Mismatch Alerts** - Get notified when users try to join with wrong passwords
 - **🌍 Public Rooms** - Optional password-free public chat
 - **🛡️ Network Isolation** - Messages stay on your local network
 - **🚫 No Logging** - No central server means no message history
@@ -36,6 +43,9 @@
 - **⚡ Lightweight** - Minimal resource usage
 - **⚠️ Smart Warnings** - Alerts when 20+ users join (P2P performance limit)
 - **🔄 Auto Reconnect** - Detects when peers disconnect
+- **📡 Adaptive Broadcasting** - Adjusts network frequency based on peer count
+- **🔗 Manual IP Connect** - Direct connection when broadcast fails
+- **🔧 Developer Mode** - Advanced debugging (config file enabled)
 
 ---
 
@@ -147,6 +157,7 @@ python lantern.py
 - **GUI**: Tkinter
 - **Encryption**: AES-256-CFB
 - **Key Derivation**: PBKDF2-HMAC-SHA256 (100,000 iterations)
+- **Handshake**: SHA-256 key hash verification
 - **Networking**: TCP (messages), UDP (discovery)
 
 ### File Structure
@@ -155,8 +166,11 @@ LANTern/
 ├── lantern.py          # Main application
 ├── requirements.txt    # Python dependencies
 ├── README.md          # This file
+├── CHANGELOG.md       # Version history
 ├── LICENSE            # MIT License
-└── CODE_OF_CONDUCT.md # Community guidelines
+├── CODE_OF_CONDUCT.md # Community guidelines
+└── beta_tester/       # Beta test builds
+    └── LANTern_Beta.exe
 ```
 
 ---
@@ -167,6 +181,12 @@ LANTern/
 - Ensure all users are on the same network
 - Check firewall settings (allow ports 5000-5001)
 - Verify everyone is using the same password
+
+### Password Mismatch Warning
+- If you see "⚠️ [user] tried to join with wrong password - access denied"
+- This means someone is trying to join with a different password
+- This is expected behavior and prevents decryption errors
+- All users must use the exact same password to communicate
 
 ### Messages Not Sending
 - Check network connectivity
@@ -191,12 +211,16 @@ We welcome contributions! Please see our [Code of Conduct](CODE_OF_CONDUCT.md).
 5. Open a Pull Request
 
 ### Development Priorities
-- [ ] File sharing support
+- [ ] File sharing support (drag & drop, images)
 - [ ] Voice chat integration
 - [ ] Mobile app versions
-- [ ] Message history/persistence
+- [ ] Message history/persistence (local storage)
 - [ ] Emoji picker
-- [ ] Custom themes
+- [ ] Custom themes (beyond dark/light)
+- [ ] Message reactions (👍 ❤️ 😂)
+- [ ] Message editing/deletion
+- [ ] Room management (create/join multiple)
+- [ ] User avatars
 
 ---
 
