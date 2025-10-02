@@ -51,24 +51,38 @@
 
 ## 📦 Installation
 
-### Prerequisites
+### 🚀 Quick Start (Windows - No Python Required)
+
+**Download the standalone executable - no installation needed!**
+
+1. Go to [Releases](https://github.com/GOT-A-AK47/LANTern/releases/latest)
+2. Download `LANTern-v1.2.0-beta-Lumina.exe`
+3. Double-click to run - that's it! ✨
+
+> **Note:** Windows Defender may show a warning because the app is unsigned. Click "More info" → "Run anyway"
+
+---
+
+### 🐍 Run from Source (Python)
+
+#### Prerequisites
 - Python 3.8 or higher
 - Windows, macOS, or Linux
 
-### Step 1: Clone the Repository
+#### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/yourusername/LANTern.git
+git clone https://github.com/GOT-A-AK47/LANTern.git
 cd LANTern
 ```
 
-### Step 2: Install Dependencies
+#### Step 2: Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### Step 3: Run LANTern
+#### Step 3: Run LANTern
 ```bash
-python lantern.py
+python src/lantern.py
 ```
 
 ---
