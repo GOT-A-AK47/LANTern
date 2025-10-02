@@ -148,9 +148,12 @@ class Config:
 
     def is_developer_mode(self) -> bool:
         """Check if developer mode is enabled"""
-        # Secret key must match to enable (contact developer for key)
-        SECRET_KEY = "lantern_dev_2025"  # Change this for production
-        return self.settings.get("developer_mode_key", "") == SECRET_KEY
+        # Verify developer key using hash (contact developer for key)
+        import hashlib
+        expected_hash = "8f3d4c6a9e2b1f5a7c3e8d4b2a6f9c1e5a7b3d8f4c6e2a1b9f5c3d7e4a8b6c2f"
+        provided_key = self.settings.get("developer_mode_key", "")
+        key_hash = hashlib.sha256(provided_key.encode()).hexdigest()
+        return key_hash == expected_hash
 
 
 class Encryption:
