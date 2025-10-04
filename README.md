@@ -2,7 +2,7 @@
 
 **LANTern** is a lightweight, open-source peer-to-peer chat application designed for secure local network communication without requiring internet connectivity.
 
-![Version](https://img.shields.io/badge/version-1.2.0--beta%20Lumina-blue)
+![Version](https://img.shields.io/badge/version-1.3.0%20Beacon-blue)
 ![Python](https://img.shields.io/badge/python-3.8+-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 
@@ -56,10 +56,31 @@
 **Download the standalone executable - no installation needed!**
 
 1. Go to [Releases](https://github.com/GOT-A-AK47/LANTern/releases/latest)
-2. Download `LANTern-v1.2.0-beta-Lumina.exe`
+2. Download `LANTern-v1.3.0-Beacon.exe`
 3. Double-click to run - that's it! ✨
 
-> **Note:** Windows Defender may show a warning because the app is unsigned. Click "More info" → "Run anyway"
+#### ⚠️ Windows Security Warning
+
+**Windows Defender/SmartScreen may show a warning.** This is normal for new unsigned applications.
+
+**How to run anyway:**
+
+1. **If you see "Windows protected your PC":**
+   - Click **"More info"**
+   - Click **"Run anyway"**
+
+2. **Why does this happen?**
+   - LANTern is not digitally signed (certificates cost €100-€300/year)
+   - Windows flags unknown executables as a precaution
+   - LANTern is 100% open source - you can inspect the code yourself!
+
+3. **Is it safe?**
+   - ✅ All source code is available on GitHub
+   - ✅ Built with PyInstaller from `lantern.py`
+   - ✅ No telemetry, no data collection, no internet connection required
+   - ✅ Licensed under MIT (open source)
+
+**Alternative:** Run from Python source (see below) to avoid the warning entirely!
 
 ---
 
@@ -246,7 +267,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👨‍💻 Author
 
-**Tijn** - *Initial work*
+**GOT_A_AK47** - *Initial work*
 
 ---
 

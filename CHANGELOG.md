@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0 "Beacon"] - 2025-10-04
+
+### Added
+- **ℹ️ About Dialog**: New "About" button in top bar with app information
+  - Version information
+  - Feature list with descriptions
+  - Author and license information
+  - Clickable GitHub repository link
+
+### Changed
+- **📝 Author**: Updated author information to GOT_A_AK47
+- **📄 Documentation**: Enhanced README with detailed Windows Security Warning instructions
+  - Step-by-step guide for running unsigned executables
+  - Explanation of why Windows Defender shows warnings
+  - Safety guarantees and alternatives
+
+### Fixed
+- **🔒 Security**: Added author metadata to source code header
+
+---
+
 ## [1.2.0-beta "Lumina"] - 2025-10-02
 
 ### Added

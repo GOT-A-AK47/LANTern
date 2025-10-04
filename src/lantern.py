@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
 LANTern - Secure P2P LAN Chat Application
-Version: 1.2.0-beta Lumina
+Version: 1.3.0 Beacon
+Author: GOT_A_AK47
+License: MIT
+Repository: https://github.com/GOT-A-AK47/LANTern
 """
 
 import tkinter as tk
@@ -1015,6 +1018,10 @@ class LANTernGUI:
         tk.Button(self.top_frame, text="🌙 Dark Mode", font=("Arial", 9),
                  command=self.toggle_dark_mode).pack(side=tk.RIGHT, padx=5)
 
+        # About button
+        tk.Button(self.top_frame, text="ℹ️ About", font=("Arial", 9),
+                 command=self.show_about).pack(side=tk.RIGHT, padx=5)
+
         # Main container
         self.main_frame = tk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
@@ -1195,6 +1202,75 @@ class LANTernGUI:
                 self.add_system_message(f"🔗 Attempting connection to {ip_address}...")
             else:
                 messagebox.showerror("Connection Error", f"Invalid IP address: {ip_address}")
+
+    def show_about(self):
+        """Show About dialog"""
+        about_window = tk.Toplevel(self.root)
+        about_window.title("About LANTern")
+        about_window.geometry("500x600")
+        about_window.resizable(False, False)
+
+        # Main container
+        main_frame = tk.Frame(about_window, padx=30, pady=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Title
+        tk.Label(main_frame, text="🔦 LANTern", font=("Arial", 24, "bold")).pack(pady=(0, 5))
+        tk.Label(main_frame, text="Version 1.3.0 Beacon", font=("Arial", 11)).pack(pady=(0, 20))
+
+        # Description
+        tk.Label(main_frame, text="Secure P2P LAN Chat Application",
+                font=("Arial", 12, "bold")).pack(pady=(0, 10))
+
+        description = ("LANTern is a lightweight peer-to-peer chat application\n"
+                      "designed for secure local network communication without\n"
+                      "requiring internet connectivity.")
+        tk.Label(main_frame, text=description, font=("Arial", 10),
+                justify=tk.CENTER).pack(pady=(0, 20))
+
+        # Features section
+        features_frame = tk.Frame(main_frame)
+        features_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        tk.Label(features_frame, text="✨ Features", font=("Arial", 11, "bold")).pack(anchor=tk.W)
+
+        features = [
+            "🔒 End-to-end AES-256 encryption",
+            "🌐 Peer-to-peer architecture (no server)",
+            "💬 Group chat & private messaging",
+            "🎨 Customizable username colors",
+            "🌙 Dark mode support",
+            "🔍 Full-text chat search",
+            "🔔 Desktop notifications",
+            "✨ Rich text formatting (bold, italic, code)",
+            "⌨️ Keyboard shortcuts (Ctrl+F/E/D/B/T)",
+            "💾 Persistent settings"
+        ]
+
+        features_text = tk.Text(features_frame, height=11, width=45, font=("Arial", 9),
+                               wrap=tk.WORD, relief=tk.FLAT, bg=about_window.cget('bg'))
+        features_text.pack(fill=tk.BOTH, pady=5)
+
+        for feature in features:
+            features_text.insert(tk.END, feature + "\n")
+        features_text.config(state=tk.DISABLED)
+
+        # Info section
+        info_frame = tk.Frame(main_frame)
+        info_frame.pack(pady=15)
+
+        tk.Label(info_frame, text="📄 License: MIT", font=("Arial", 9)).pack()
+        tk.Label(info_frame, text="👨‍💻 Author: GOT_A_AK47", font=("Arial", 9)).pack()
+
+        # GitHub link
+        github_link = tk.Label(info_frame, text="🔗 GitHub Repository",
+                              font=("Arial", 9), fg="blue", cursor="hand2")
+        github_link.pack(pady=5)
+        github_link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/GOT-A-AK47/LANTern"))
+
+        # Close button
+        tk.Button(main_frame, text="Close", font=("Arial", 10),
+                 command=about_window.destroy, width=12).pack(pady=(10, 0))
 
     def toggle_dark_mode(self):
         """Toggle between light and dark mode"""
